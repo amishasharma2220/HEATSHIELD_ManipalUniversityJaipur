@@ -1,0 +1,96 @@
+# HEATSHIELD — every modelling assumption lives here.
+# All effect sizes are ILLUSTRATIVE assumptions for a synthetic prototype,
+# chosen to be physiologically plausible. They are NOT clinical reference values.
+
+seed: 42
+
+cohort:
+  n_patients: 240
+  age_min: 55
+  age_max: 85
+  p_hypertension: 0.85
+  p_t2d: 0.55
+  p_ckd: 0.30
+  p_beta_blocker: 0.45     # topped up so roughly half the cohort is beta-blocked
+  p_diuretic: 0.45
+  p_sglt2i: 0.25           # only offered to T2D patients
+  p_acei_arb: 0.55
+  p_home_ac: 0.40
+  p_outdoor_routine: 0.45  # outdoor errands / work in the afternoon
+
+simulation:
+  days: 8                  # days 1-5 calibrate, 6-7 held out (hide-and-reveal), 8 = "tomorrow" in the demo
+  step_minutes: 5
+  calibration_days: 5
+
+# ---------------- World simulator (ground truth, hidden from the twin) ----------------
+world:
+  body:
+    specific_heat_j_per_kg_k: 3490
+    met_w_per_kg: 1.16             # 1 MET ~ 1.16 W/kg
+  dry_heat_coeff_w_m2_k: 8.0
+  solar_load_c: 4.0                # extra effective degrees when outdoors in daytime sun
+  circadian_amplitude_c: 0.25      # core temp peaks ~17:00 (NOT modelled by the twin)
+  regulatory_loss_w_per_c: 120     # skin blood flow / respiratory loss above resting core
+  sweat_gain_w_per_c: 450          # sweat drive per degree of core rise
+  sweat_max_w: 420                 # healthy young adult evaporative capacity (scaled per patient)
+  humidity_penalty: 0.6            # Emax *= (1 - penalty * RH)
+  latent_heat_j_per_kg: 2430000
+  dehydration:
+    sweat_suppression_at_reserve: 0.5   # Emax halves when deficit reaches reserve
+    hr_bpm_per_pct_bodymass: 3.0
+    core_c_per_pct_bodymass: 0.12
+  drinking:
+    times_h: [7.5, 10.5, 13.0, 16.5, 20.0]
+    replace_fraction_young: 0.85
+    replace_fraction_old: 0.55     # thirst blunted with age
+  medication:
+    diuretic_extra_l_per_h: 0.035
+    sglt2i_extra_l_per_h: 0.025
+    beta_blocker_hr_gain_mult: 0.45
+    beta_blocker_activity_mult: 0.7
+    beta_blocker_rest_hr_shift: -8
+  traits:                          # hidden per-patient traits (mean, sd)
+    sweat_capacity: [1.0, 0.15]    # multiplied by age factor
+    hr_gain_bpm_per_c: [32, 5]
+    fluid_loss_mult: [1.0, 0.15]
+    fluid_reserve_l: [1.6, 0.3]    # reduced with low eGFR
+    hr_rest_bpm: [70, 7]
+    tc_rest_c: [36.95, 0.12]
+  sensors:
+    hr_noise_bpm: 4.0
+    skin_noise_c: 0.25
+    dropout_prob: 0.02
+
+# ---------------- Indoor climate ----------------
+indoor:
+  lag_hours: 3
+  damping: 0.45          # indoor swing relative to outdoor swing
+  offset_c: -2.0
+  ac_cap_c: 28.0
+
+# ---------------- Twin (simplified model, sees only EHR + wearable + weather) ----------------
+twin:
+  n_particles: 400
+  process_noise_tc: 0.02           # deg C per step
+  process_noise_deficit: 0.01      # L per step
+  forecast_noise_tc: 0.09          # calibrated on calibration patients so the 90% band covers ~90% of truth
+  liu_west_a: 0.995                # parameter shrinkage/jitter at resampling (Liu & West 2001)
+  resample_ess_frac: 0.5
+  # Only traits identifiable from wrist data are learned online. Sweat capacity and fluid-loss
+  # rate stay at their EHR-based estimates: wrist HR + skin temp cannot separate them (tested).
+  learned_params: [hr_gain, hr_rest]
+  obs_noise_hr: 8.0                # larger than true sensor noise: twin is a simpler model
+  obs_noise_skin: 0.6
+  priors:                          # [mean, sd] before EHR adjustment
+    sweat_capacity: [1.0, 0.25]
+    hr_gain_bpm_per_c: [32, 8]
+    fluid_loss_mult: [1.0, 0.3]
+
+# ---------------- Outcome ----------------
+outcome:
+  psi_threshold: 7.0
+  core_threshold_c: 39.0           # temperature-only arm, so beta-blocked strain is not hidden
+  hr_max_ref: 180
+  core_max_ref: 39.5
+  evening_hour: 20                 # risk is predicted each evening for the next 24 h

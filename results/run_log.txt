@@ -1,0 +1,61 @@
+[16:50:17] weather: SYNTHETIC placeholder (no internet when built). Run `python -m heatshield.weather --fetch` to replace with real Open-Meteo data.
+simulated 240 patients x 2304 steps
+[16:50:21] cohort 240 patients, 49% beta-blocked
+[16:50:21] filtering: population
+[16:51:10] filtering: ehr
+[16:51:56] filtering: twin
+[16:52:40] E1 done
+[16:52:41] E2 done
+[16:53:13] E3 done
+[16:53:51] E4 done: event rate 12.7% over 1680 patient-evenings
+
+=== E1 ===
+                          method            group  rmse_all_c  rmse_heat_strain_c  bias_heat_strain_c
+Standard HR method (Buller 2013)     beta-blocked       0.501               1.049              -1.001
+Standard HR method (Buller 2013) not beta-blocked       0.250               0.433              -0.297
+       Population model (no EHR)     beta-blocked       0.163               0.329              -0.252
+       Population model (no EHR) not beta-blocked       0.158               0.236              -0.045
+          EHR-aware, no learning     beta-blocked       0.145               0.209              -0.121
+          EHR-aware, no learning not beta-blocked       0.148               0.197              -0.072
+HEATSHIELD twin (EHR + learning)     beta-blocked       0.146               0.211              -0.107
+HEATSHIELD twin (EHR + learning) not beta-blocked       0.143               0.211              -0.100
+
+=== E2 ===
+  trait  population_mae  ehr_prior_mae  after_day1_mae  after_day5_mae  corr_day5
+hr_gain          10.493          3.033           2.285           2.390      0.968
+hr_rest           6.942          2.534           0.549           0.640      0.995
+
+=== E3 ===
+                           model            group  tc_rmse_c  daily_peak_tc_mae_c  peak_psi_mae  band_90_coverage
+       Population model (no EHR)              all      0.159                0.174         0.988             0.767
+       Population model (no EHR)     beta-blocked      0.156                0.150         1.280             0.773
+       Population model (no EHR) not beta-blocked      0.163                0.198         0.706             0.762
+          EHR-aware, no learning              all      0.145                0.149         0.442             0.827
+          EHR-aware, no learning     beta-blocked      0.146                0.139         0.286             0.823
+          EHR-aware, no learning not beta-blocked      0.145                0.158         0.592             0.831
+HEATSHIELD twin (EHR + learning)              all      0.145                0.149         0.331             0.827
+HEATSHIELD twin (EHR + learning)     beta-blocked      0.146                0.139         0.252             0.822
+HEATSHIELD twin (EHR + learning) not beta-blocked      0.144                0.158         0.407             0.833
+
+=== E4 ===
+                      model        group   n  events  auroc  auprc  brier  sensitivity  precision
+            Heat-index rule          all 252      35  0.562  0.174  0.654        1.000      0.157
+            Heat-index rule beta-blocked 154      13  0.635  0.142  0.725        1.000      0.092
+           XGBoost, no twin          all 252      35  0.908  0.574  0.096        0.171      0.750
+           XGBoost, no twin beta-blocked 154      13  0.963  0.658  0.061        0.000      0.000
+        Twin forecast alone          all 252      35  0.930  0.555  0.083        0.657      0.575
+        Twin forecast alone beta-blocked 154      13  0.962  0.608  0.047        0.769      0.588
+HEATSHIELD (XGBoost + twin)          all 252      35  0.931  0.635  0.088        0.200      0.636
+HEATSHIELD (XGBoost + twin) beta-blocked 154      13  0.961  0.549  0.056        0.000      0.000
+
+=== E4 over 5 patient splits ===
+                      model        group  auroc_mean  auroc_sd  auprc_mean  brier_mean
+            Heat-index rule          all       0.634     0.086       0.197       0.665
+            Heat-index rule beta-blocked       0.765     0.091       0.242       0.737
+           XGBoost, no twin          all       0.916     0.007       0.599       0.074
+           XGBoost, no twin beta-blocked       0.953     0.023       0.550       0.042
+        Twin forecast alone          all       0.938     0.005       0.599       0.086
+        Twin forecast alone beta-blocked       0.958     0.011       0.525       0.056
+HEATSHIELD (XGBoost + twin)          all       0.935     0.006       0.664       0.072
+HEATSHIELD (XGBoost + twin) beta-blocked       0.954     0.018       0.503       0.041
+[16:53:52] all done in 215.2 s

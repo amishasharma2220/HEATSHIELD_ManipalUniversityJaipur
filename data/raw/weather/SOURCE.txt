@@ -1,0 +1,1 @@
+SYNTHETIC placeholder (no internet when built). Run `python -m heatshield.weather --fetch` to replace with real Open-Meteo data.

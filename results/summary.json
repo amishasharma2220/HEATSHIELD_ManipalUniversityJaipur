@@ -1,0 +1,7 @@
+{
+ "weather_source": "SYNTHETIC placeholder (no internet when built). Run `python -m heatshield.weather --fetch` to replace with real Open-Meteo data.",
+ "n_patients": 240,
+ "patient_evenings": 1680,
+ "event_rate": 0.12738095238095237,
+ "runtime_s": 215.2
+}
