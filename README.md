@@ -120,7 +120,7 @@ The twin's mechanistic forecast matches a supervised model trained on 1,000+ lab
 ## How to run
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt           # Mac only, first time: brew install libomp  (XGBoost needs it)
 python -m heatshield.weather --fetch      # optional: real Open-Meteo weather (needs internet; run from src/ or set PYTHONPATH=src)
 python experiments/run_all.py              # data -> world -> twin -> E1-E4 -> results/  (~4 min)
 pytest -q                                  # E5 scenario checks

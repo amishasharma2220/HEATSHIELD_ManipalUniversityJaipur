@@ -233,9 +233,9 @@ with tabs[2]:
     win = df[df.psi_hi >= 7]
     xgb = preds.query("pid == @pid and evening == @day")["xgb_with_twin"] if preds is not None else pd.Series(dtype=float)
     c1, c2, c3 = st.columns(3)
-    c1.metric("Twin: P(high strain in 24 h)", f"{base['p_event']:.0%}", band(base["p_event"]))
+    c1.metric("Twin: P(high strain in 24 h)", f"{base['p_event']:.0%}", band(base["p_event"]), delta_color="off")
     if len(xgb):
-        c2.metric("Risk model (XGBoost + twin)", f"{float(xgb.iloc[0]):.0%}", band(float(xgb.iloc[0])))
+        c2.metric("Risk model (XGBoost + twin)", f"{float(xgb.iloc[0]):.0%}", band(float(xgb.iloc[0])), delta_color="off")
     c3.metric("Predicted peak PSI", f"{base['peak_psi']:.1f}")
     if len(win):
         st.error(f"High-risk window: {win.time.min():%a %H:%M} – {win.time.max():%H:%M}", icon="🔥")
@@ -296,6 +296,8 @@ with tabs[3]:
         same = st.checkbox(f"Expose both to {row['name']}'s forecast weather", value=True,
                            help="Same heatwave, different bodies: isolates what the EHR and learned traits change")
         b2 = same_weather_forecast(pid2, pid, t_now) if same else fc(pid2, t_now, PRESETS["Baseline"])
+        if len(b2["df"]) == len(base["df"]):   # same 24 h window: plot both on the first patient's clock
+            b2 = {**b2, "df": b2["df"].assign(time=base["df"]["time"].to_numpy())}
         st.plotly_chart(psi_figure([(f"{row['name']} ({pid})", base, RISK, "dash"),
                                     (f"{r2['name']} ({pid2})", b2, EST, "dash")]), width="stretch")
         comp = pd.DataFrame({

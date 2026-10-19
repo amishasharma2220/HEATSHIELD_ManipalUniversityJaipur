@@ -35,8 +35,16 @@ MED_NAMES = {
 }
 FIRST = ["Ramesh", "Sunita", "Mohan", "Kamla", "Suresh", "Geeta", "Vijay", "Asha", "Prakash", "Meena",
          "Rajendra", "Usha", "Anil", "Savitri", "Gopal", "Lata", "Mahesh", "Pushpa", "Dinesh", "Saroj"]
+MALE_FIRST = ["Ramesh", "Mohan", "Suresh", "Vijay", "Prakash", "Rajendra", "Anil", "Gopal", "Mahesh", "Dinesh"]
+FEMALE_FIRST = ["Sunita", "Kamla", "Geeta", "Asha", "Meena", "Usha", "Savitri", "Lata", "Pushpa", "Saroj"]
 LAST = ["Sharma", "Verma", "Gupta", "Meena", "Jain", "Singh", "Agarwal", "Choudhary", "Yadav", "Joshi"]
 CITIES = ["Jaipur", "Delhi", "Jodhpur", "Nagpur", "Lucknow"]
+
+
+def _first_name(sex: str, drawn: str) -> str:
+    """Keep the random draw (so the rest of the cohort is unchanged) but match the name to the sex."""
+    pool = MALE_FIRST if sex == "M" else FEMALE_FIRST
+    return pool[FIRST.index(drawn) % len(pool)]
 
 
 def generate_synthea_style(seed: int | None = None) -> None:
@@ -52,7 +60,7 @@ def generate_synthea_style(seed: int | None = None) -> None:
         weight = float(np.clip(rng.normal(72 if sex == "M" else 62, 10), 42, 110))
         height = float(np.clip(rng.normal(166 if sex == "M" else 153, 7), 140, 190))
         patients.append(dict(Id=pid, BIRTHDATE=f"{2026 - age}-06-15", GENDER=sex,
-                             FIRST=rng.choice(FIRST), LAST=rng.choice(LAST),
+                             FIRST=_first_name(sex, rng.choice(FIRST)), LAST=rng.choice(LAST),
                              CITY=rng.choice(CITIES), STATE="IN",
                              HOME_AC=int(rng.random() < c["p_home_ac"]),
                              OUTDOOR_ROUTINE=int(rng.random() < c["p_outdoor_routine"]),
