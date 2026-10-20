@@ -1,7 +1,6 @@
 """Physiological Strain Index (Moran, Shitzer & Pandolf, 1998).
 
 PSI = 5 (Tc_t - Tc_0) / (39.5 - Tc_0) + 5 (HR_t - HR_0) / (180 - HR_0), clipped to 0-10.
-Verify the constants against the original paper before submission.
 """
 import numpy as np
 from .config import cfg
@@ -15,7 +14,7 @@ def psi(tc, hr, tc0, hr0):
 
 
 def psi_temp_half(tc, tc0):
-    """Temperature half of PSI (0-5). An honest strain signal when heart rate is drug-blunted."""
+    """Temperature half of PSI (0-5). Still a valid strain signal when heart rate is drug-blunted."""
     o = cfg()["outcome"]
     return np.clip(5 * (np.asarray(tc) - tc0) / (o["core_max_ref"] - tc0), 0, 5)
 
