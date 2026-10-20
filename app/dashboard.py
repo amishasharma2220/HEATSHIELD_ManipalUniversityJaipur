@@ -19,6 +19,7 @@ from heatshield.config import PROCESSED, RESULTS, CONFIG_PATH, cfg, steps_per_da
 from heatshield.twin.twin import PatientTwin                                       # noqa: E402
 from heatshield.twin.scenarios import Scenario, PRESETS                            # noqa: E402
 from heatshield.weather import weather_source                                      # noqa: E402
+from heatshield import fhir, advisory                                              # noqa: E402
 
 st.set_page_config(page_title="HEATSHIELD", page_icon="🌡️", layout="wide")
 
@@ -78,13 +79,43 @@ def same_weather_forecast(pid2: str, pid1: str, t: int):
     return tw2.forecast(Scenario())
 
 
+@st.cache_data(max_entries=40)
+def replay_cached(pid: str, t: int):
+    return twin_at(pid, t).replay(t, hours=24, every_h=1)
+
+
+@st.cache_data(max_entries=200)
+def explain_cached(pid: str, t: int):
+    return twin_at(pid, t).explain(fc(pid, t, PRESETS["Baseline"]))
+
+
+def high_window(df: pd.DataFrame):
+    w = df[df.psi_hi >= 7]
+    return (w.time.min(), w.time.max()) if len(w) else None
+
+
+def fhir_for(pid: str, t: int, row: pd.Series) -> dict:
+    b = fc(pid, t, PRESETS["Baseline"])
+    tw_ = twin_at(pid, t)
+    s_ = tw_.state()
+    now = b["df"].time.iloc[0] - pd.Timedelta(minutes=cfg()["simulation"]["step_minutes"])
+    drivers = [d["driver"] for d in explain_cached(pid, t) if not pd.isna(d["peak_psi_drop"]) and d["peak_psi_drop"] > 0.3]
+    ind = fc(pid, t, PRESETS["Stay indoors 11am-4pm"])
+    mit = (f"Simulated: staying indoors 11:00-16:00 changes predicted peak PSI {b['peak_psi']:.1f} -> "
+           f"{ind['peak_psi']:.1f} and risk {b['p_event']:.0%} -> {ind['p_event']:.0%}.")
+    return [fhir.patient_resource(row, pid),
+            fhir.risk_assessment(pid, now, b["df"].time.iloc[0], b["df"].time.iloc[-1], b["p_event"], b["peak_psi"],
+                                 high_window(b["df"]), drivers[:3], mit),
+            fhir.core_temp_observation(pid, now, s_["tc"], s_["tc_sd"])]
+
+
 def band(p: float) -> str:
     return "High" if p >= 0.5 else "Moderate" if p >= 0.2 else "Low"
 
 
 if not (PROCESSED / "world.npz").exists() or not (PROCESSED / "predictions.parquet").exists():
     st.title("🌡️ HEATSHIELD")
-    st.info("No simulated data yet. Build it once (about 4 minutes): this generates the synthetic cohort, "
+    st.info("No simulated data yet (first visit to this deployment). Build it once (about 4 minutes): this generates the synthetic cohort, "
             "runs the world simulator and the twin, and trains the risk models. "
             "Same as running `python experiments/run_all.py`.")
     if st.button("Build data now", type="primary"):
@@ -104,11 +135,58 @@ with st.sidebar:
     st.markdown("## 🌡️ HEATSHIELD")
     st.caption("Medication-aware digital twin for heat strain in vulnerable patients")
     st.warning("Prototype on synthetic data. Not validated for clinical use.", icon="⚠️")
+    view = st.radio("View", ["Doctor", "District health officer"], horizontal=True)
     day = st.slider("Replay the wearable stream up to the evening of day", 1, n_days - 1, n_days - 1,
                     help="The twin re-filters every reading up to 8 pm on this day, then forecasts the next 24 h.")
     t_now = (day - 1) * SPD + EVENING
     st.caption(f"Weather: {weather_source().split('(')[0].strip()}")
     st.caption("Lines: solid = observed · dashed = estimated · shaded = uncertainty · dotted = hypothetical")
+
+
+# ------------------------------------------------------------------------------------ district view
+if view == "District health officer" and preds is not None:
+    st.title("District heat-risk view")
+    st.caption("For the public-health team running a heat action plan: where are tomorrow's high-risk patients, "
+               "and why? Each patient is followed for one monitoring week; 'day' is the monitoring day.")
+    p = preds[preds["evening"] == day].set_index("pid")
+    dv = cohort.set_index("pid").join(p[["twin_only"]], how="inner")
+    dv["tmax"] = pd.Series(D["t_out_forecast"][:, t_now + 1:t_now + 1 + SPD].max(1), index=cohort["pid"]).reindex(dv.index)
+    dv["band"] = dv["twin_only"].map(band)
+    dv["high"] = dv["band"] == "High"
+    g = dv.groupby("city")
+    tab = pd.DataFrame({
+        "Patients": g.size(),
+        "High risk": g["high"].sum().astype(int),
+        "Moderate": g["band"].apply(lambda b: int((b == "Moderate").sum())),
+        "High risk without AC": g.apply(lambda d: int((d["high"] & (d["home_ac"] == 0)).sum())),
+        "High risk on β-blocker": g.apply(lambda d: int((d["high"] & (d["beta_blocker"] == 1)).sum())),
+        "High risk with outdoor routine": g.apply(lambda d: int((d["high"] & (d["outdoor_routine"] == 1)).sum())),
+        "Forecast max °C (mean)": g["tmax"].mean().round(1),
+    }).sort_values("High risk", ascending=False)
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Patients monitored", int(tab["Patients"].sum()))
+    k2.metric("High risk tomorrow", int(tab["High risk"].sum()))
+    k3.metric("…of whom have no AC", int(tab["High risk without AC"].sum()))
+    st.dataframe(tab.reset_index().rename(columns={"city": "City"}), hide_index=True, width="stretch")
+    fig = go.Figure()
+    for col, c in (("High risk", RISK), ("Moderate", "#f0a35e")):
+        fig.add_trace(go.Bar(x=tab.index, y=tab[col], name=col, marker_color=c))
+    fig.update_layout(barmode="stack", height=300, margin=dict(t=20, b=10), yaxis_title="patients")
+    st.plotly_chart(fig, width="stretch")
+    st.subheader("High-risk patients by city and monitoring day")
+    hm = preds.assign(high=preds["twin_only"] >= 0.5).merge(cohort[["pid", "city"]], on="pid") \
+        .pivot_table(index="city", columns="evening", values="high", aggfunc="sum").fillna(0)
+    fig = go.Figure(go.Heatmap(z=hm.values, x=[f"Day {c + 1}" for c in hm.columns], y=hm.index,
+                               colorscale=[[0, "#fff5eb"], [1, RISK]], text=hm.values.astype(int),
+                               texttemplate="%{text}", colorbar=dict(title="high risk")))
+    fig.update_layout(height=280, margin=dict(t=10, b=10))
+    st.plotly_chart(fig, width="stretch")
+    st.info("Suggested use: send ASHA/outreach workers first to high-risk patients without AC, and open cooling "
+            "centres in the cities at the top of the table. Counts come from the twin's own forecast.")
+    st.download_button("Download high-risk list (CSV)", dv[dv["high"]].reset_index()[
+        ["pid", "name", "age", "city", "home_ac", "beta_blocker", "diuretic", "twin_only"]].to_csv(index=False),
+        file_name=f"heatshield_high_risk_day{day + 1}.csv")
+    st.stop()
 
 # ------------------------------------------------------------------------------------ triage
 st.title("Tomorrow's heat-strain risk")
@@ -150,7 +228,7 @@ tw = twin_at(pid, t_now)
 base = fc(pid, t_now, PRESETS["Baseline"])
 
 tabs = st.tabs(["1 · Overview", "2 · Live twin state", "3 · 24 h forecast", "4 · What-if simulator",
-                "5 · Evidence & limits"])
+                "5 · Live replay", "6 · Family alert & FHIR", "7 · Evidence & limits"])
 
 # ------------------------------------------------------------------------------------ 1 overview
 with tabs[0]:
@@ -244,7 +322,7 @@ with tabs[2]:
                     width="stretch")
     st.subheader("Why: main drivers of tomorrow's risk")
     st.caption("Each factor is reset to a neutral value; the drop in predicted strain shows how much it contributes.")
-    ex = pd.DataFrame(twin_at(pid, t_now).explain(base))
+    ex = pd.DataFrame(explain_cached(pid, t_now))
     ex["Peak PSI reduction if removed"] = ex["peak_psi_drop"].map(lambda v: "" if pd.isna(v) else f"{v:+.1f}")
     ex["Risk reduction if removed"] = ex["risk_drop"].map(lambda v: "" if pd.isna(v) else f"{v:+.0%}")
     st.dataframe(ex[["driver", "Peak PSI reduction if removed", "Risk reduction if removed"]]
@@ -314,8 +392,112 @@ with tabs[3]:
         st.dataframe(comp, hide_index=True, width="stretch")
         st.caption("Same weather for both patients." if same else "Each patient under their own city's forecast.")
 
-# ------------------------------------------------------------------------------------ 5 evidence
+# ------------------------------------------------------------------------------------ 5 live replay
+def replay_figure(rp: dict, k: int, reveal: bool):
+    fr = rp["frames"][k]
+    obs = rp["obs"]
+    past = obs[obs.time <= fr["time"]]
+    f = fr["fc"]
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.06, row_heights=[0.42, 0.33, 0.25],
+                        subplot_titles=("Strain forecast for the rest of the day (PSI)",
+                                        "Core temperature: estimated so far, forecast ahead",
+                                        "Heart rate from the watch (arrives as the day goes on)"))
+    fig.add_trace(go.Scatter(x=pd.concat([f.time, f.time[::-1]]), y=pd.concat([f.psi_hi, f.psi_lo[::-1]]),
+                             fill="toself", fillcolor="rgba(209,73,91,.15)", line=dict(width=0), showlegend=False), 1, 1)
+    fig.add_trace(go.Scatter(x=f.time, y=f.psi_mid, line=dict(color=RISK, dash="dash"), name="PSI forecast"), 1, 1)
+    fig.add_hline(y=7, line=dict(color=RISK, dash="dot"), row=1, col=1)
+    up, lo = past.tc_est + 1.645 * past.tc_sd, past.tc_est - 1.645 * past.tc_sd
+    fig.add_trace(go.Scatter(x=pd.concat([past.time, past.time[::-1]]), y=pd.concat([up, lo[::-1]]), fill="toself",
+                             fillcolor="rgba(91,141,239,.18)", line=dict(width=0), showlegend=False), 2, 1)
+    fig.add_trace(go.Scatter(x=past.time, y=past.tc_est, line=dict(color=EST, dash="dash"), name="Core temp (est.)"), 2, 1)
+    fig.add_trace(go.Scatter(x=f.time, y=f.tc_mid, line=dict(color=RISK, dash="dot", width=1.5),
+                             name="Core temp (forecast)"), 2, 1)
+    fig.add_trace(go.Scatter(x=past.time, y=past.hr_obs, line=dict(color=OBS, width=1), name="Heart rate"), 3, 1)
+    if reveal:
+        fig.add_trace(go.Scatter(x=obs.time, y=obs.true_psi, line=dict(color=OBS, width=2),
+                                 name="What really happened (hidden)"), 1, 1)
+        fig.add_trace(go.Scatter(x=obs.time, y=obs.true_tc, line=dict(color=OBS, width=2), showlegend=False), 2, 1)
+    for r_ in (1, 2, 3):
+        fig.add_vline(x=fr["time"], line=dict(color="#555", width=1), row=r_, col=1)
+    fig.update_yaxes(range=[0, 10], row=1, col=1)
+    fig.update_xaxes(range=[obs.time.iloc[0], obs.time.iloc[-1]])
+    fig.update_layout(height=620, margin=dict(t=40, b=10), legend=dict(orientation="h", y=-0.06))
+    return fig
+
+
 with tabs[4]:
+    st.caption("Replays the next 24 hours as if live. Every hour the twin absorbs the new watch readings and "
+               "re-forecasts the rest of the day. An alert is sent the first time the risk reaches "
+               "50% (the 'High' band).")
+    rp = replay_cached(pid, t_now)
+    n = len(rp["frames"])
+    ctl1, ctl2, ctl3 = st.columns([1, 1, 2])
+    play = ctl1.button("▶ Play the day", type="primary")
+    reveal_r = ctl2.toggle("Reveal what really happened", value=False)
+    k = ctl3.slider("Hours since 8 pm", 0, n - 1, 0, format="+%d h")
+    status = st.empty()
+    chart = st.empty()
+
+    def show(k_):
+        fr = rp["frames"][k_]
+        al = rp["alert"]
+        fired = al is not None and al["t"] <= fr["t"]
+        with status.container():
+            a_, b_, c_ = st.columns(3)
+            a_.metric("Now", f"{fr['time']:%a %H:%M}")
+            b_.metric("P(high strain, rest of window)", f"{fr['p_event']:.0%}", band(fr["p_event"]), delta_color="off")
+            if fired:
+                lead = (rp["danger_time"] - al["time"]).total_seconds() / 3600 if rp["danger_time"] is not None else None
+                c_.error(f"🔔 Alert sent {al['time']:%a %H:%M}" + (f" · {lead:.0f} h before danger" if lead and lead > 0
+                                                                   and reveal_r else ""))
+            else:
+                c_.success("No alert yet")
+        chart.plotly_chart(replay_figure(rp, k_, reveal_r), width="stretch", key=f"replay_{k_}_{play}")
+
+    if play:
+        import time as _time
+        for k_ in range(n):
+            show(k_)
+            _time.sleep(0.5)
+    else:
+        show(k)
+    if reveal_r:
+        if rp["danger_time"] is not None:
+            st.info(f"Ground truth: danger began {rp['danger_time']:%a %H:%M}." +
+                    (f" The alert came {(rp['danger_time'] - rp['alert']['time']).total_seconds() / 3600:.0f} h earlier."
+                     if rp["alert"] is not None and rp["alert"]["time"] <= rp["danger_time"] else
+                     " The twin did not alert in time for this patient." if rp["alert"] is None else ""))
+        else:
+            st.info("Ground truth: no dangerous strain in this window." +
+                    (" This alert was a false alarm." if rp["alert"] is not None else " Correctly, no alert was sent."))
+
+# ------------------------------------------------------------------------------------ 6 alert + FHIR
+with tabs[5]:
+    l_, r_ = st.columns([1.3, 1])
+    with l_:
+        st.subheader("Message for the family (draft)")
+        st.caption("Drafted from the forecast. The doctor edits and approves it; nothing is sent automatically. "
+                   "It never suggests changing a medicine, and defers fluid amounts to the doctor "
+                   "(some patients are on a fluid limit).")
+        msg = advisory.draft(row, base["p_event"], high_window(base["df"]), base["df"].time.iloc[-1])
+        lang = st.radio("Language", ["हिन्दी", "English"], horizontal=True)
+        txt = st.text_area("Edit before approving", msg["hi"] if lang == "हिन्दी" else msg["en"], height=190,
+                           key=f"msg_{pid}_{day}_{lang}")
+        if st.button("Approve message"):
+            st.success("Approved by the doctor. In a deployment this would go out by SMS / WhatsApp to the "
+                       "registered family number (not connected in this prototype).")
+    with r_:
+        st.subheader("Export to hospital systems (FHIR R4)")
+        st.caption("FHIR R4 is the standard behind India's ABDM health-record exchange. The forecast is exported "
+                   "as a RiskAssessment, the twin's core-temperature estimate as an Observation.")
+        bnd = fhir.bundle(fhir_for(pid, t_now, row))
+        st.download_button("Download FHIR bundle (JSON)", fhir.dumps(bnd), file_name=f"heatshield_{pid}_fhir.json",
+                           mime="application/fhir+json", type="primary")
+        with st.expander("Preview the RiskAssessment"):
+            st.json(bnd["entry"][1]["resource"])
+
+# ------------------------------------------------------------------------------------ 7 evidence
+with tabs[6]:
     st.subheader("What each number is")
     st.dataframe(pd.DataFrame({
         "Label": ["Observed", "Estimated", "Predicted", "Hypothetical"],
@@ -329,7 +511,10 @@ with tabs[4]:
     st.subheader("Model performance (synthetic test patients)")
     for f, title in (("e1_core_temperature.csv", "E1 · Core-temperature estimation"),
                      ("e3_hide_and_reveal.csv", "E3 · Hide-and-reveal forecast"),
-                     ("e4_risk_models.csv", "E4 · Risk models")):
+                     ("e4_risk_models.csv", "E4 · Risk models"),
+                     ("e5_stress_test.csv", "E5 · Stress test: world drug effects changed, twin assumptions not"),
+                     ("e6_messy_wearable.csv", "E6 · Messy wearable data"),
+                     ("e7_alerts.csv", "E7 · Alert burden and warning time")):
         if (RESULTS / f).exists():
             st.markdown(f"**{title}**")
             st.dataframe(pd.read_csv(RESULTS / f).round(3), hide_index=True, width="stretch")
@@ -341,6 +526,9 @@ with tabs[4]:
 - Sweat capacity and fluid-loss rate cannot be learned from wrist data alone; they stay at EHR-based estimates
   and their uncertainty is carried into every forecast.
 - Medication scenarios show attributable risk only; they are never a recommendation.
+- Stress test (E5): the twin stays accurate when the simulator's drug effects are 50% off or absent, but
+  both models are heat + fluid balances; a real body can differ in ways neither captures.
+- Messy-data test (E6) assumes the phone still records steps and location when the watch is off.
 """)
     with st.expander("All modelling assumptions"):
         st.code(CONFIG_PATH.read_text(), language="yaml")

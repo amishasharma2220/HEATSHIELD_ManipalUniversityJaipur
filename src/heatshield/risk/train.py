@@ -44,7 +44,7 @@ def _scale_rule(hi: np.ndarray) -> np.ndarray:
     return 1 / (1 + np.exp(-(hi - 41) / 1.5))
 
 
-def train_and_evaluate(df: pd.DataFrame, seed: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+def train_and_evaluate(df: pd.DataFrame, seed: int | None = None, save: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
     seed = cfg()["seed"] if seed is None else seed
     sp = split_patients(df["pid"].to_numpy(), seed)
     part = {k: df["pid"].isin(v).to_numpy() for k, v in sp.items()}
@@ -61,9 +61,10 @@ def train_and_evaluate(df: pd.DataFrame, seed: int | None = None) -> tuple[pd.Da
         logit = np.log(raw / (1 - raw))[:, None]
         platt = LogisticRegression().fit(logit[part["val"]], df.loc[part["val"], "label"])
         preds[name] = platt.predict_proba(logit)[:, 1]
-        m.save_model(MODELS / f"{name}.json")
-        imp = pd.Series(m.feature_importances_, index=cols).sort_values(ascending=False)
-        imp.to_csv(MODELS / f"{name}_importance.csv", header=["importance"])
+        if save:
+            m.save_model(MODELS / f"{name}.json")
+            imp = pd.Series(m.feature_importances_, index=cols).sort_values(ascending=False)
+            imp.to_csv(MODELS / f"{name}_importance.csv", header=["importance"])
     rows = []
     test = preds[preds["split"] == "test"]
     for name in LABELS:
@@ -71,7 +72,8 @@ def train_and_evaluate(df: pd.DataFrame, seed: int | None = None) -> tuple[pd.Da
                             ("not beta-blocked", test["beta_blocker"] == 0), ("no AC", test["home_ac"] == 0)):
             r = _metrics(test.loc[mask, "label"].to_numpy(), test.loc[mask, name].to_numpy())
             rows.append({"model": LABELS[name], "group": group, **r})
-    (MODELS / "split.json").write_text(json.dumps({k: sorted(v) for k, v in sp.items()}, indent=1))
+    if save:
+        (MODELS / "split.json").write_text(json.dumps({k: sorted(v) for k, v in sp.items()}, indent=1))
     return pd.DataFrame(rows), preds
 
 
@@ -79,7 +81,7 @@ def multi_split(df: pd.DataFrame, n_splits: int = 5) -> pd.DataFrame:
     """Mean and sd of test metrics over several random patient splits."""
     rows = []
     for k in range(n_splits):
-        res, _ = train_and_evaluate(df, seed=cfg()["seed"] + k)
+        res, _ = train_and_evaluate(df, seed=cfg()["seed"] + k, save=False)
         rows.append(res.assign(split=k))
     allr = pd.concat(rows)
     g = allr.groupby(["model", "group"], sort=False)[["auroc", "auprc", "brier", "sensitivity", "precision"]]

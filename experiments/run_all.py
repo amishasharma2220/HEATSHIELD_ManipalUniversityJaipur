@@ -3,7 +3,7 @@
     python experiments/run_all.py            # full run (~5 min on a laptop)
     python experiments/run_all.py --quick    # 60 patients, for a smoke test
 
-E5 (scenario sanity checks) lives in tests/test_scenarios.py and runs with pytest.
+E5-E7 (stress test, messy data, alerts) live in experiments/robustness.py; scenario checks in tests/.
 """
 from __future__ import annotations
 

@@ -73,6 +73,41 @@ class PatientTwin:
         return {"df": df, "p_event": float(res["p_event"][0]), "peak_psi": float(res["peak_psi"][0]),
                 "peak_tc": float(res["peak_tc"][0]), "scenario": scenario or Scenario()}
 
+    # ------------------------------------------------------------------ live replay
+    def replay(self, t_start: int, hours: int = 24, every_h: int = 1, alert_p: float = 0.5) -> dict:
+        """Replay one day as if live: every `every_h` hours the twin absorbs the new wearable readings
+        and re-forecasts the rest of the window. Returns frames for animation + when the alert fired."""
+        step = cfg()["simulation"]["step_minutes"]
+        per_h = 60 // step
+        T = self.D["t_out"].shape[1]
+        t_end = min(t_start + hours * per_h, T - 1)
+        frames_t = list(range(t_start, t_end, every_h * per_h))
+        post = F.run_filter(self.profile, self.D, "twin", snapshot_steps=set(frames_t), t_end=t_end + 1,
+                            seed=self.seed)
+        start = pd.Timestamp(str(self.D["start"][self.i])) if self.D["start"].ndim else pd.Timestamp(str(self.D["start"]))
+        times = start + pd.to_timedelta(np.arange(T) * step, unit="min")
+        frames = []
+        for t in frames_t:
+            h = t_end - t
+            H, k, _ = build_horizon(self.profile, self.D, t, h)
+            r = F.forecast(post["snapshots"][t], k, H, seed=1, spread=F.unlearned_spread(self.profile))
+            frames.append({"t": t, "time": times[t], "p_event": float(r["p_event"][0]),
+                           "peak_psi": float(r["peak_psi"][0]),
+                           "fc": pd.DataFrame({"time": times[t + 1:t_end + 1], "psi_lo": r["psi_lo"][0],
+                                               "psi_mid": r["psi_mid"][0], "psi_hi": r["psi_hi"][0],
+                                               "tc_mid": r["tc_mid"][0]})})
+        alert = next((f for f in frames if f["p_event"] >= alert_p), None)
+        sl = slice(t_start, t_end + 1)
+        true_psi, true_tc = self.D["true_psi"][0, sl], self.D["true_tc"][0, sl]
+        th = cfg()["outcome"]
+        hit = (true_psi >= th["psi_threshold"]) | (true_tc >= th["core_threshold_c"])
+        danger_time = times[sl][int(np.argmax(hit))] if hit.any() else None
+        obs = pd.DataFrame({"time": times[sl], "hr_obs": self.D["hr_obs"][0, sl],
+                            "tc_est": post["tc_mean"][0, sl], "tc_sd": post["tc_sd"][0, sl],
+                            "true_psi": true_psi, "true_tc": true_tc, "t_out": self.D["t_out"][0, sl],
+                            "outdoor": self.D["outdoor"][0, sl]})
+        return {"frames": frames, "obs": obs, "alert": alert, "danger_time": danger_time, "alert_p": alert_p}
+
     def truth(self, hours: int = 24) -> pd.DataFrame:
         """Hidden ground truth for the same window (only for the hide-and-reveal view)."""
         h = hours * 60 // cfg()["simulation"]["step_minutes"]

@@ -117,7 +117,9 @@ def build_inputs(cohort: pd.DataFrame, rng: np.random.Generator) -> dict:
     return X
 
 
-def run(cohort: pd.DataFrame | None = None) -> None:
+def run(cohort: pd.DataFrame | None = None, save: bool = True):
+    """Simulate the world. save=False returns (D, traits) in memory (used by the stress tests,
+    so the main dataset on disk is never overwritten)."""
     rng = np.random.default_rng(cfg()["seed"] + 1)
     if cohort is None:
         cohort = pd.read_parquet(PROCESSED / "cohort.parquet")
@@ -131,8 +133,7 @@ def run(cohort: pd.DataFrame | None = None) -> None:
     drop = rng.random((P, T)) < s["dropout_prob"]
     hr_obs[drop], skin_obs[drop] = np.nan, np.nan
     true_psi = psi(truth["tc"], truth["hr"], traits["tc_rest"].to_numpy()[:, None], traits["hr_rest"].to_numpy()[:, None])
-    np.savez_compressed(
-        PROCESSED / "world.npz",
+    D = dict(
         # inputs (known to the twin: weather, phone location, activity from steps)
         **{k: X[k] for k in ("t_out", "t_out_forecast", "rh", "solar", "t_in", "t_in_noac",
                              "met", "outdoor", "sleep", "drink", "start")},
@@ -141,6 +142,9 @@ def run(cohort: pd.DataFrame | None = None) -> None:
         # ground truth (HIDDEN from the twin)
         true_tc=truth["tc"], true_deficit=truth["deficit"], true_hr=truth["hr"], true_psi=true_psi,
     )
+    if not save:
+        return D, traits
+    np.savez_compressed(PROCESSED / "world.npz", **D)
     traits.to_parquet(PROCESSED / "hidden_traits.parquet", index=False)
     print(f"simulated {P} patients x {T} steps")
 

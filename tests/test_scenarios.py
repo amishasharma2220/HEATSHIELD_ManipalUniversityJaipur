@@ -1,4 +1,4 @@
-"""E5: the what-if engine must behave sensibly. Run: pytest -q
+"""Scenario checks: the what-if engine must behave sensibly. Run: pytest -q
 
 Each check runs on a small set of real cohort patients from the evening of day 6.
 """

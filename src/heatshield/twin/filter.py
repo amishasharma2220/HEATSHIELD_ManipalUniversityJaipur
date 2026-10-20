@@ -16,7 +16,8 @@ from .model import Consts, PARAMS, TC_REST
 
 # ----------------------------------------------------------------------------- Buller baseline
 # Buller et al. (2013) Physiol. Meas. 34:781 — core temperature from heart rate alone.
-# Coefficients as commonly reported; VERIFY against the paper before submission.
+# Coefficients b2=-4.5714, b1=384.4286, b0=-7887.1, gamma^2=0.022^2 per min, sigma=18.88 as in
+# Buller et al. (2013) and US patent US20140180027A1; initial CT 37.1 C as in later re-implementations.
 BULLER = dict(a=-4.5714, b=384.4286, c=-7887.1, gamma_per_min=0.022 ** 2, sigma=18.88, x0=37.1)
 
 
@@ -61,7 +62,13 @@ def inputs_from_world(D: dict, rows=slice(None), use_forecast=False, power_cut=F
 
 def init_cloud(cohort: pd.DataFrame, hr_obs: np.ndarray, mode: str, rng, N: int) -> dict:
     P = len(cohort)
-    night = np.nanmedian(hr_obs[:, :60], axis=1)                     # first 5 h of data = night 1
+    with np.errstate(all="ignore"):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            night = np.nanmedian(hr_obs[:, :60], axis=1)              # first 5 h of data = night 1
+    # watch not worn on night 1 -> fall back to the EHR-only resting-HR prior
+    night = np.where(np.isnan(night), np.where(cohort["beta_blocker"].to_numpy() == 1, 58, 66), night)
     if mode == "population":
         point = model.population_point(cohort)
         th = {k: np.repeat(point[k][:, None], N, 1) for k in PARAMS}
