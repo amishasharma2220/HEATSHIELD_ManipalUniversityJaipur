@@ -96,7 +96,9 @@ Every physiological and drug assumption is in **one file**: [`config/assumptions
 | Interoperability | HL7 FHIR R4 (RiskAssessment, Observation, Patient) |
 | Tests | pytest (12 checks: scenario behaviour, FHIR structure, message safety, live replay) |
 
-## Results (held-out synthetic patients, 240-patient cohort, real May–June 2024 heatwave weather)
+## Results (240 synthetic patients, real May–June 2024 heatwave weather)
+
+E1–E3 use every patient, because the twin is never trained on outcomes. E4 and E7 report test patients from patient-level splits, since XGBoost is trained on labels.
 
 **E1 · Medication-awareness matters.** Core-temperature error during heat strain (true core ≥ 37.8 °C):
 
@@ -110,9 +112,9 @@ Every physiological and drug assumption is in **one file**: [`config/assumptions
 The standard method underestimates beta-blocked patients' core temperature by about 1.0 °C on average during heat strain (mean bias −0.99 °C). See `results/e1_example_trace.png`.
 
 **E2 · The twin learns the patient.** Error in the patient's heart-rate response to heat falls from 10.5 bpm/°C (population average) to 3.0 (EHR prior) to 2.5 after the wearable data (correlation with the hidden truth 0.97); resting-HR error falls from 2.0 to 0.6 bpm.
-*Honest finding:* sweat capacity and fluid-loss rate are **not identifiable** from wrist heart rate and skin temperature; learning them made estimates worse. They stay at EHR-based estimates and their uncertainty is carried into every forecast.
+*Limitation:* sweat capacity and fluid-loss rate are **not identifiable** from wrist heart rate and skin temperature; learning them made estimates worse. They stay at EHR-based estimates and their uncertainty is carried into every forecast.
 
-**E3 · Hide-and-reveal.** Calibrate on days 1–5, forecast days 6–7 with no sensor data, then reveal the truth:
+**E3 · Hide-and-reveal.** Calibrate on days 1–5, forecast days 6–7 with no sensor data, then reveal the truth. For the hidden days the twin is given the actual weather and logged activity, so E3 tests its physiology and learned traits; E4 is the true forecast test, using the weather forecast and the patient's usual routine.
 
 | Model | Core-temp RMSE | Peak-PSI error | 90% band coverage |
 | --- | --- | --- | --- |
@@ -131,7 +133,7 @@ The standard method underestimates beta-blocked patients' core temperature by ab
 | **Twin forecast alone** | **0.96** | **0.59** | 0.06 |
 | XGBoost + twin features | **0.96** | 0.58 | **0.05** |
 
-A one-size-fits-all heat-index rule does no better than chance at picking out which patients will be strained. The twin's mechanistic forecast beats a supervised model trained on 1,000+ labelled patient-days, **without needing any labelled outcomes**, which a real clinic would not have. That is why the dashboard's primary risk is the twin's own forecast.
+A one-size-fits-all heat-index rule does no better than chance at picking out which patients will be strained. The twin's mechanistic forecast matches or slightly beats a supervised model trained on 1,000+ labelled patient-days (AUROC 0.96 vs 0.94, a gap of about one standard deviation across the 5 splits), **without needing any labelled outcomes**, which a real clinic would not have. That is why the dashboard's primary risk is the twin's own forecast.
 
 **E5 · Stress test: what if our drug assumptions are wrong?** A fair objection is that the simulator *builds in* the beta-blocker effect, so the twin is bound to win. So we changed the world's drug effects while the twin kept its original assumptions (`experiments/robustness.py`):
 
@@ -145,7 +147,7 @@ A one-size-fits-all heat-index rule does no better than chance at picking out wh
 | All wrong at once | 0.69 | 0.28 | 0.20 | **0.21** | 0.95 / **0.96** |
 | Drugs have **no** effect at all | 0.44 | 0.23 | 0.23 | **0.20** | 0.95 / **0.95** |
 
-The twin's error stays between 0.20 and 0.22 °C in every world, because it **learns** each patient's heart-rate response from the watch and corrects a wrong prior. The model without learning degrades when the assumption is wrong (0.28 °C when the beta-blocker effect is stronger). *Honest finding:* when drugs have no effect at all, the twin's advantage over XGBoost disappears (0.95 vs 0.95) and its 90% band coverage drops from 82% to 78%: the medication-awareness only pays off if the drug effect is real.
+The twin's error stays between 0.20 and 0.22 °C in every world, because it **learns** each patient's heart-rate response from the watch and corrects a wrong prior. The model without learning degrades when the assumption is wrong (0.28 °C when the beta-blocker effect is stronger). *Limitation:* when drugs have no effect at all, the twin's advantage over XGBoost disappears (0.95 vs 0.95) and its 90% band coverage drops from 82% to 78%: the medication-awareness only pays off if the drug effect is real.
 
 ![Stress test](results/e5_stress_test.png)
 
@@ -157,7 +159,7 @@ The twin's error stays between 0.20 and 0.22 °C in every world, because it **le
 | Realistic | 24% | 1.05 °C | 0.22 °C | 82% | 0.96 |
 | Poor | 47% | 1.08 °C | 0.22 °C | 82% | 0.96 |
 
-*Honest reading:* the twin barely notices, because its core-temperature estimate is driven mainly by its physiology model with weather and the phone's steps and location; the wrist data mainly teaches it the patient's personal heart-rate response. The uncertainty band therefore does not widen with missing data. If phone activity were also missing, performance would fall; we did not test that.
+*Interpretation:* the twin barely notices, because its core-temperature estimate is driven mainly by its physiology model with weather, activity level and indoor/outdoor location; the wrist data mainly teaches it the patient's personal heart-rate response. The uncertainty band therefore does not widen with missing data. If activity and location were also missing, performance would fall; we did not test that.
 
 **E7 · Alert burden and warning time.** A useful alert system must not flood the doctor. For each model the alert threshold was chosen on validation patients to catch at least 80% of events; results on test patients, mean of 5 splits:
 
@@ -168,7 +170,7 @@ The twin's error stays between 0.20 and 0.22 °C in every world, because it **le
 | Twin forecast alone | 79% | 1.0 | 0.5 | 48% |
 | **HEATSHIELD (XGBoost + twin)** | **83%** | **1.0** | **0.5** | **48%** |
 
-At the same sensitivity the twin halves XGBoost's false alarms and cuts the heat-index rule's by about 10×. Alerts go out at 8 pm; the danger begins a **median 17 h later** (10th percentile 16 h), so there is a full morning to act. The dashboard's *Live replay* tab shows this for one patient hour by hour.
+At the same sensitivity the twin halves XGBoost's false alarms and cuts the heat-index rule's by about 10×. Alerts go out at 8 pm; the danger begins a **median 17 h later** (10th percentile 16 h), so there is a full morning to act. The warning time is set mainly by the 8 pm alert time and is about the same for every model; the twin's gain is in false alarms. The dashboard's *Live replay* tab shows this for one patient hour by hour.
 
 ![Alerts](results/e7_alerts.png)
 
@@ -221,14 +223,15 @@ docs/                       architecture diagram and presentation
 ## Documents
 
 - Architecture diagram: [`docs/architecture.pdf`](docs/architecture.pdf)
-- Presentation: [`docs/presentation.pdf`](docs/presentation.pdf) (speaker notes double as the video script)
+- Presentation: [`docs/presentation.pdf`](docs/presentation.pdf)
 
 ## Limitations and responsible use
 
 - All data is synthetic. The results show the method works in a simulated world under stated assumptions, not clinical accuracy.
 - The physiology is simplified; drug effect sizes are illustrative.
 - The stress test (E5) varies drug effect sizes, but the twin's model structure still matches the simulator's in kind (heat + fluid balance); a real body can differ in ways neither model has.
-- The messy-data test (E6) assumes the phone still records steps and indoor/outdoor location when the watch is off.
+- The twin is given the simulator's logged activity level and indoor/outdoor timing. A real system would estimate these from phone steps and location, with error, so results are a best case for those inputs.
+- The messy-data test (E6) assumes activity and indoor/outdoor location are still known when the watch is off.
 - Warning times (E7) come from an 8 pm forecast for the next day; same-day alerts are shown in the live replay but not evaluated.
 - PSI was designed for exertional heat strain in healthy people; it is used here as a research target, not a diagnosis.
 - Medication scenarios show **attributable risk only**. HEATSHIELD never recommends stopping or changing a medicine.
