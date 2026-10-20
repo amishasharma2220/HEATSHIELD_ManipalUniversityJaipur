@@ -74,7 +74,7 @@ twin:
   n_particles: 400
   process_noise_tc: 0.02           # deg C per step
   process_noise_deficit: 0.01      # L per step
-  forecast_noise_tc: 0.09          # calibrated on calibration patients so the 90% band covers ~90% of truth
+  forecast_noise_tc: 0.09          # hand-tuned to widen the forecast band; measured 90%-band coverage is ~82% (E3)
   liu_west_a: 0.995                # parameter shrinkage/jitter at resampling (Liu & West 2001)
   resample_ess_frac: 0.5
   # Only traits identifiable from wrist data are learned online. Sweat capacity and fluid-loss
