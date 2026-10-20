@@ -2,7 +2,7 @@
 
 > **Happiest Health Digital Twin Challenge 2026** · Prototype on synthetic data · **Not validated for clinical use**
 
-**▶ Live demo:** PASTE_STREAMLIT_LINK_HERE  ·  **🎬 Video:** PASTE_YOUTUBE_LINK_HERE
+**▶ Live demo:** https://amishasharma2220-heatshield-manipaluniversi-appdashboard-il5ao4.streamlit.app/  ·  **🎬 Video:** PASTE_YOUTUBE_LINK_HERE
 
 **In one line:** smartwatches estimate body heat from heart rate, which fails for the many older Indians on beta-blockers. HEATSHIELD builds a digital twin of each patient from their medical record and watch data, forecasts dangerous heat strain 24 hours ahead, and lets the doctor test what-ifs.
 
@@ -22,7 +22,7 @@
 | | |
 | --- | --- |
 | Team name | HEATSHIELD |
-| Members | Amisha Sharma (team leader) |
+| Members | Amisha Sharma (team leader), Meet Siroya |
 | College / incubator | Manipal University Jaipur |
 | Contact | amishasharma2220@gmail.com |
 
@@ -216,7 +216,7 @@ docs/                       architecture diagram and presentation
 
 **Video (≥ 20 minutes):** PASTE_YOUTUBE_LINK_HERE
 
-**Live dashboard:** PASTE_STREAMLIT_LINK_HERE (first visit to a fresh deployment builds the data, about 5 minutes)
+**Live dashboard:** https://amishasharma2220-heatshield-manipaluniversi-appdashboard-il5ao4.streamlit.app/ (first visit to a fresh deployment builds the data, about 5 minutes)
 
 ## Documents
 
