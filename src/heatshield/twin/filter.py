@@ -15,7 +15,7 @@ from . import model
 from .model import Consts, PARAMS, TC_REST
 
 # ----------------------------------------------------------------------------- Buller baseline
-# Buller et al. (2013) Physiol. Meas. 34:781 — core temperature from heart rate alone.
+# Buller et al. (2013) Physiol. Meas. 34:781: core temperature from heart rate alone.
 # Coefficients b2=-4.5714, b1=384.4286, b0=-7887.1, gamma^2=0.022^2 per min, sigma=18.88 as in
 # Buller et al. (2013) and US patent US20140180027A1; initial CT 37.1 C as in later re-implementations.
 BULLER = dict(a=-4.5714, b=384.4286, c=-7887.1, gamma_per_min=0.022 ** 2, sigma=18.88, x0=37.1)

@@ -200,7 +200,7 @@ if preds is not None:
     tri["Band"] = tri["Risk"].map(band)
     tri["Heat-relevant meds"] = tri.apply(lambda r: ", ".join(
         lbl for col, lbl in (("beta_blocker", "β-blocker"), ("diuretic", "diuretic"), ("sglt2i", "SGLT2i"))
-        if r[col]) or "—", axis=1)
+        if r[col]) or "none", axis=1)
     tri["Home AC"] = tri["home_ac"].map({1: "yes", 0: "no"})
     show = tri.sort_values("Risk", ascending=False)[
         ["name", "age", "city", "Heat-relevant meds", "Home AC", "Tomorrow max °C", "Risk", "Band", "ML risk"]]
