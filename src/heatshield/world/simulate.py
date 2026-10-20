@@ -134,7 +134,7 @@ def run(cohort: pd.DataFrame | None = None, save: bool = True):
     hr_obs[drop], skin_obs[drop] = np.nan, np.nan
     true_psi = psi(truth["tc"], truth["hr"], traits["tc_rest"].to_numpy()[:, None], traits["hr_rest"].to_numpy()[:, None])
     D = dict(
-        # inputs (known to the twin: weather, phone location, activity from steps)
+        # inputs (known to the twin: weather, phone location, logged activity level)
         **{k: X[k] for k in ("t_out", "t_out_forecast", "rh", "solar", "t_in", "t_in_noac",
                              "met", "outdoor", "sleep", "drink", "start")},
         # wearable observations (known to the twin)

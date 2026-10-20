@@ -53,7 +53,11 @@ def _systematic_resample(w: np.ndarray, rng) -> np.ndarray:
 
 
 def inputs_from_world(D: dict, rows=slice(None), use_forecast=False, power_cut=False) -> dict:
-    """Twin-visible inputs: weather (+ indoor), phone location, activity from steps, drink times."""
+    """Twin-visible inputs: weather (+ indoor), phone location, activity level (MET), drink times.
+
+    The prototype passes the simulator's logged MET directly. A real deployment would estimate it from
+    phone steps and location, with error, so results here are a best case for that input.
+    """
     t_out = D["t_out_forecast"][rows] if use_forecast else D["t_out"][rows]
     t_in = D["t_in_noac"][rows] if power_cut else D["t_in"][rows]
     return dict(t_eff=model.effective_temp(t_out, t_in, D["solar"][rows], D["outdoor"][rows]),
